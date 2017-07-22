@@ -6,13 +6,14 @@ This version of EdTracker has two units:
 
 ## The sensor unit
 The below is the list of libraries needed for the sensor unit. Most of them are taken from the original EDTracker2 Hardware repo https://github.com/brumster/EDTracker2_ArduinoHardware
-I2Cdev
-InvensenseMotionDriver
-SoftwareSerial
-RF24-master - https://tmrh20.github.io/RF24
+- I2Cdev
+- InvensenseMotionDriver
+- SoftwareSerial
+- RF24-master - https://tmrh20.github.io/RF24
+
 ## The receiver unit
-The receiver/joystick unit needs the following libraries:
-Joystick - https://github.com/MHeironimus/ArduinoJoystickLibrary
-RF24-master - https://tmrh20.github.io/RF24
+- The receiver/joystick unit needs the following libraries:
+- Joystick - https://github.com/MHeironimus/ArduinoJoystickLibrary
+- RF24-master - https://tmrh20.github.io/RF24
 
 
