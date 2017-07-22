@@ -12,7 +12,7 @@ The below is the list of libraries needed for the sensor unit. Most of them are 
 - RF24-master - https://tmrh20.github.io/RF24
 
 ## The receiver unit
-- The receiver/joystick unit needs the following libraries:
+The receiver/joystick unit needs the following libraries:
 - Joystick - https://github.com/MHeironimus/ArduinoJoystickLibrary
 - RF24-master - https://tmrh20.github.io/RF24
 
