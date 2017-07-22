@@ -86,7 +86,7 @@ RF24 radio(9, 10); // explicit CE, CS pins
 extern "C" {
 #include <inv_mpu.h>
 #include <inv_mpu_dmp_motion_driver.h>
-#include <edtracker.h> //Miscelaneous library. If I find mo functionality needs to be included, I'll add it here
+#include "edtracker.h"
 }
 
 // In raw reading values from the MPU...
