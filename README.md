@@ -11,6 +11,9 @@ The below is the list of libraries needed for the sensor unit. Most of them are 
 - SoftwareSerial
 - RF24-master - https://tmrh20.github.io/RF24
 
+Here is the schematics of the unit:
+![Pro Micro based MPU sensor unit](/EDTracker2_9150/EDTrackerRadio_sensor_schem.png?raw=true "MPU sensor unit")
+
 ## The receiver unit
 The receiver/joystick unit needs the following libraries:
 - Joystick - https://github.com/MHeironimus/ArduinoJoystickLibrary
