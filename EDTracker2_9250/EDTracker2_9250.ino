@@ -57,8 +57,8 @@ THE SOFTWARE.
 
 #pragma message "Sketch is EDTracker2_9250..."
 
-#ifdef MPU9150
-#error "MPU9150 is defined; have you chosen the wrong board in Arduino IDE?!"
+#ifndef MPU9250
+#error "MPU9250 is not defined; have you chosen the wrong board in Arduino IDE?!"
 #endif
 
 // Comment out for production firmware!
@@ -185,7 +185,7 @@ boolean startup = true;           // Flags when we are in the startup (auto-bias
 int  startupPhase = 0;            // and which type of phase it is
 int  startupSamples;
 
-// The "Tracker" object which is used to mimic the joystick; see HID.cpp within the hardware folder
+// The "Tracker" object which is used to hold the joystick data
 TrackState_t joySt;
 
 /* The mounting matrix below tells the MPL how to rotate the raw
@@ -225,6 +225,16 @@ long readLongEE(int address) {
           (long)EEPROM.read(address + 1) << 8 |
           (long)EEPROM.read(address));
 }
+
+int status_mpu_init = 0;
+int status_mpu_set_compass_sample_rate = 0;
+int status_mpu_set_sensors = 0;
+int status_mpu_configure_fifo = 0;
+int status_mpu_set_sample_rate = 0;
+int status_dmp_load_motion_driver_firmware = 0;
+int status_dmp_set_orientation = 0;
+int status_dmp_enable_feature = 0;
+int status_dmp_set_fifo_rate = 0;
 
 /*******************************************************************************************************
 * Initialise function
@@ -272,6 +282,18 @@ void setup() {
 
 void loop()
 {
+//while(!Serial);
+//Serial.println("OK");
+//Serial.println( status_mpu_init );
+//Serial.println( status_mpu_set_compass_sample_rate );
+//Serial.println( status_mpu_set_sensors );
+//Serial.println( status_mpu_configure_fifo );
+//Serial.println( status_mpu_set_sample_rate );
+//Serial.println( status_dmp_load_motion_driver_firmware );
+//Serial.println( status_dmp_set_orientation );
+//Serial.println( status_dmp_enable_feature );
+//Serial.println( status_dmp_set_fifo_rate );
+
   long unsigned int sensor_data;
   short gyro[3], accel[3], sensors;
   unsigned char more ;
@@ -284,13 +306,17 @@ void loop()
 
   nowMillis = millis();
 
+//Serial.println(100);
   sensor_data = 1;
-  dmp_read_fifo(gyro, accel, quat, &sensor_data, &sensors, &more);
+  int status_dmp_read_fifo = dmp_read_fifo(gyro, accel, quat, &sensor_data, &sensors, &more);
 
+//Serial.println(200);
   if (!more)
     new_gyro = false;
 
-  if (sensor_data == 0)
+//Serial.println(300);
+//Serial.println(sensor_data);
+  if (status_dmp_read_fifo == 0)
   {
     Quaternion q( (float)quat[0]  / 1073741824.0f,
                   (float)quat[1]  / 1073741824.0f,
@@ -310,11 +336,14 @@ void loop()
     //yaw
     newv[0] = -atan2(2.0 * (q.x * q.y + q.w * q.z), q.w * q.w + q.x * q.x - q.y * q.y - q.z * q.z);
 
+//Serial.println(400);
     short mag[3];
-    magSampled  = mpu_get_compass_reg(mag);
-    
+    magSampled  = mpu_get_compass_reg(mag, NULL);
+
+//Serial.println(magSampled);
     if (magSampled == 0)
     {
+//Serial.println(1000);
 
       if (outputUI) {
         reportRawMag(mag);
@@ -471,17 +500,17 @@ void loop()
       ii[n] = constrain(ii[n], -32767, 32767);
 
     // Do it to it (Robspeak for "set the axis values on the HID object"!)
-    if (ii[0] > 30000  || ii[0] < -30000) {
-      joySt.xAxis = ii[0] ;
-    } else {
+//    if (ii[0] > 30000  || ii[0] < -30000) {
+//      joySt.xAxis = ii[0] ;
+//    } else {
       joySt.xAxis = joySt.xAxis * outputLPF + ii[0] * (1.0 - outputLPF) ;
-    }
+//    }
       joySt.yAxis = joySt.yAxis * outputLPF + ii[1] * (1.0 - outputLPF) ;
       joySt.zAxis = joySt.zAxis * outputLPF + ii[2] * (1.0 - outputLPF) ;
     
     //Do we report the joystick state to the OS here?
     //Tracker.setState(&joySt);
-    if( !outputUI ){
+    if( !outputUI && !startup ){
       transmitJoystickState();
     }
 
@@ -537,7 +566,7 @@ void loop()
       if (outputUI )
       {
         long tempNow;
-        mpu_get_temperature (&tempNow);
+        mpu_get_temperature (&tempNow, NULL);
         Serial.print("T\t");
         Serial.println(tempNow);
       }
@@ -601,7 +630,7 @@ void loop()
 }
 
 void transmitJoystickState(){
-  Serial.println("transmit!");
+//  Serial.println("transmit!");
   // let's wait for the server's invitation so sen our data
   radio.startListening();                                    // Now, continue listening
   unsigned long started_waiting_at = millis();               // Set up a timeout period, get the current microseconds
@@ -615,14 +644,14 @@ void transmitJoystickState(){
   }
       
   if ( timeout ){                                             // Describe the results
-    Serial.println("Failed, no request.");
+//    Serial.println("Failed, no request.");
   }else{
     uint8_t request = 0;
     radio.read( &request, sizeof(uint8_t) );
     if (fromEdTrackerToReceiver == request) {
       // if the request was for the rudder data
       // read the data from the sensors
-      Serial.println(request);
+//      Serial.println(request);
       RadioJoystick joystick;
       joystick.fromToByte = fromEdTrackerToReceiver;
       joystick.axisX = joySt.xAxis;
@@ -633,17 +662,17 @@ void transmitJoystickState(){
       delay(2); // this delay is to allow the receiver to prepare for our transmission
 
       if (!radio.write( &joystick, sizeof(joystick) )){ // This will block until complete
-        Serial.println("Failed to send Joystick state");
+//        Serial.println("Failed to send Joystick state");
       }
 
     }else{
-      Serial.print(request);
-      Serial.println(" Failed, request is not recognised");
+//      Serial.print(request);
+//      Serial.println(" Failed, request is not recognised");
     }
   }
-  Serial.print("transmit completed in ");
-  Serial.print(millis() - started_waiting_at);
-  Serial.println("ms");
+//  Serial.print("transmit completed in ");
+//  Serial.print(millis() - started_waiting_at);
+//  Serial.println("ms");
 }
 
 
@@ -785,20 +814,20 @@ ISR(INT6_vect) {
 * MPU initialisation
 ********************************************************************************************************/
 void initialize_mpu() {
-  mpu_init(&revision);
-  mpu_set_compass_sample_rate(100); // defaults to 100 in the libs
+  status_mpu_init = mpu_init(NULL);
+  status_mpu_set_compass_sample_rate = mpu_set_compass_sample_rate(100); // defaults to 100 in the libs
 
   /* Get/set hardware configuration. Start gyro. Wake up all sensors. */
-  mpu_set_sensors(INV_XYZ_GYRO | INV_XYZ_ACCEL | INV_XYZ_COMPASS);
+  status_mpu_set_sensors = mpu_set_sensors(INV_XYZ_GYRO | INV_XYZ_ACCEL | INV_XYZ_COMPASS);
   //  mpu_set_gyro_fsr (2000);//250
   //  mpu_set_accel_fsr(2);//4
 
   /* Push both gyro and accel data into the FIFO. */
-  mpu_configure_fifo(INV_XYZ_GYRO | INV_XYZ_ACCEL);
-  mpu_set_sample_rate(DEFAULT_MPU_HZ);
+  status_mpu_configure_fifo = mpu_configure_fifo(INV_XYZ_GYRO | INV_XYZ_ACCEL);
+  status_mpu_set_sample_rate = mpu_set_sample_rate(DEFAULT_MPU_HZ);
 
-  dmp_load_motion_driver_firmware();
-  dmp_set_orientation(gyro_orients[orientation]);
+  status_dmp_load_motion_driver_firmware = dmp_load_motion_driver_firmware();
+  status_dmp_set_orientation = dmp_set_orientation(gyro_orients[orientation]);
 
   //dmp_register_tap_cb(&tap_cb);
 
@@ -807,8 +836,8 @@ void initialize_mpu() {
 
   //dmp_features = dmp_features |  DMP_FEATURE_TAP ;
 
-  dmp_enable_feature(dmp_features);
-  dmp_set_fifo_rate(DEFAULT_MPU_HZ);
+  status_dmp_enable_feature = dmp_enable_feature(dmp_features);
+  status_dmp_set_fifo_rate = dmp_set_fifo_rate(DEFAULT_MPU_HZ);
 
   return ;
 }
