@@ -79,7 +79,7 @@ THE SOFTWARE.
 #include <Wire.h>
 #include <I2Cdev.h>
 #include <RF24.h>
-RF24 radio(9, 10); // explicit CE, CS pins
+RF24 radio(9, 8); // explicit CE, CS pins
 #include "RadioJoy.h"
 
 #include <helper_3dmath.h>
@@ -134,7 +134,7 @@ extern "C" {
 #define SDA_PIN 2
 #define SCL_PIN 3
 #define LED_PIN 17 // (Arduino is 13, Teensy is 11, Teensy++ is 6)
-#define BUTTON_PIN 6 // in the original EdTracker it was 10, but 10 is used for CS in my radio designs
+#define BUTTON_PIN 10 // in the original EdTracker it was 10
 
 #ifndef cbi
 #define cbi(sfr, bit) (_SFR_BYTE(sfr) &= ~_BV(bit))
@@ -815,7 +815,6 @@ ISR(INT6_vect) {
 ********************************************************************************************************/
 void initialize_mpu() {
   status_mpu_init = mpu_init(NULL);
-  status_mpu_set_compass_sample_rate = mpu_set_compass_sample_rate(100); // defaults to 100 in the libs
 
   /* Get/set hardware configuration. Start gyro. Wake up all sensors. */
   status_mpu_set_sensors = mpu_set_sensors(INV_XYZ_GYRO | INV_XYZ_ACCEL | INV_XYZ_COMPASS);
@@ -838,6 +837,7 @@ void initialize_mpu() {
 
   status_dmp_enable_feature = dmp_enable_feature(dmp_features);
   status_dmp_set_fifo_rate = dmp_set_fifo_rate(DEFAULT_MPU_HZ);
+  status_mpu_set_compass_sample_rate = mpu_set_compass_sample_rate(100); // defaults to 100 in the libs
 
   return ;
 }

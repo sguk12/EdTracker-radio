@@ -1401,16 +1401,20 @@ int mpu_set_compass_sample_rate(unsigned short rate)
 {
 #ifdef AK89xx_SECONDARY
     unsigned char div;
-    if (!rate || rate > st.chip_cfg.sample_rate || rate > MAX_COMPASS_SAMPLE_RATE)
+    if (!rate )
         return -1;
+    if ( rate > st.chip_cfg.sample_rate )
+        return -2;
+    if ( rate > MAX_COMPASS_SAMPLE_RATE)
+        return -3;
 
     div = st.chip_cfg.sample_rate / rate - 1;
     if (i2c_write(st.hw->addr, st.reg->s4_ctrl, 1, &div))
-        return -1;
+        return -4;
     st.chip_cfg.compass_sample_rate = st.chip_cfg.sample_rate / (div + 1);
     return 0;
 #else
-    return -1;
+    return -5;
 #endif
 }
 
