@@ -71,7 +71,7 @@ THE SOFTWARE.
  * Starting sampling rate. Ignored if POLLMPU is defined above
  * Users building for slower (8MHz) AVRs are advised to tune this down to 100
  */
-#define DEFAULT_MPU_HZ    (100)
+#define DEFAULT_MPU_HZ 100 //   (200)
 
 #define EMPL_TARGET_ATMEGA328
 
@@ -121,7 +121,7 @@ extern "C" {
 #define EE_YAWEXPSCALE 31                              // 2x 1 byte  in 6:2   0.25 steps should be ok
 #define EE_PITCHEXPSCALE 32                            // 2x 1 byte  in 6:2   0.25 steps should be ok
 #define EE_POLLMPU 33                                  // *UNUSED* char (1 byte), poll or int mode
-#define EE_AUTOCENTRE 34                               // *UNUSED* char (1 byte), auto-centering enabled or disabled TODO : REDUNDANT?
+#define EE_AUTOCENTRE 34                               // *UNUSED* char (1 byte), auto-centering enabled or disabled
 #define EE_CALIBTEMP    35                             // *UNUSED* int (2 byte) - REDUNDANT?
 #define EE_MAGOFFX      40                             // int (2 byte) mag offset for X axis in 9:7 format
 #define EE_MAGOFFY      42                             // int (2 byte) mag offset for Y axis in 9:7 format
@@ -181,7 +181,7 @@ byte  recalibrateSamples =  255;
 long avgGyro[3] ;//= {0, 0, 0};
 long gBias[3];                    // Gyro biases for MPU
 volatile boolean new_gyro ;
-boolean startup = true;           // Flags when we are in the startup (auto-bias) phase (TODO: remove and just use startupPhase for logic)
+boolean startup = true;           // Flags when we are in the startup (auto-bias) phase 
 int  startupPhase = 0;            // and which type of phase it is
 int  startupSamples;
 
@@ -294,28 +294,32 @@ void loop()
 //Serial.println( status_dmp_enable_feature );
 //Serial.println( status_dmp_set_fifo_rate );
 
-  long unsigned int sensor_data;
+  //Loop until MPU interrupts us with a reading
+  if (!new_gyro){
+    if(!startup){
+      delay(50);
+    }
+    return;
+  }
+
   short gyro[3], accel[3], sensors;
   unsigned char more ;
   unsigned char magSampled ;
   long quat[4];
 
-  //Loop until MPU interrupts us with a reading
-  while (!new_gyro)
-    ;
-
   nowMillis = millis();
 
-//Serial.println(100);
-  sensor_data = 1;
-  int status_dmp_read_fifo = dmp_read_fifo(gyro, accel, quat, &sensor_data, &sensors, &more);
+  int status_dmp_read_fifo = 1;
+  long unsigned int sensor_data = 1;
+  // if it is not startup, read all the fifo data until fifo is empty
+  // at the startup time we want to get enough samples quick
+  do{
+    status_dmp_read_fifo = dmp_read_fifo(gyro, accel, quat, &sensor_data, &sensors, &more);
+  }while (!startup && (status_dmp_read_fifo==0) && more);
 
-//Serial.println(200);
   if (!more)
     new_gyro = false;
 
-//Serial.println(300);
-//Serial.println(sensor_data);
   if (status_dmp_read_fifo == 0)
   {
     Quaternion q( (float)quat[0]  / 1073741824.0f,
@@ -336,14 +340,11 @@ void loop()
     //yaw
     newv[0] = -atan2(2.0 * (q.x * q.y + q.w * q.z), q.w * q.w + q.x * q.x - q.y * q.y - q.z * q.z);
 
-//Serial.println(400);
     short mag[3];
     magSampled  = mpu_get_compass_reg(mag, NULL);
 
-//Serial.println(magSampled);
     if (magSampled == 0)
     {
-//Serial.println(1000);
 
       if (outputUI) {
         reportRawMag(mag);
@@ -429,7 +430,6 @@ void loop()
       }
 #ifdef DEBUG
     } else {
-      // TODO remove
       Serial.print("Mag oops [");
       Serial.print(magSampled);
       Serial.println("]");
@@ -500,18 +500,13 @@ void loop()
       ii[n] = constrain(ii[n], -32767, 32767);
 
     // Do it to it (Robspeak for "set the axis values on the HID object"!)
-//    if (ii[0] > 30000  || ii[0] < -30000) {
-//      joySt.xAxis = ii[0] ;
-//    } else {
-      joySt.xAxis = joySt.xAxis * outputLPF + ii[0] * (1.0 - outputLPF) ;
-//    }
-      joySt.yAxis = joySt.yAxis * outputLPF + ii[1] * (1.0 - outputLPF) ;
-      joySt.zAxis = joySt.zAxis * outputLPF + ii[2] * (1.0 - outputLPF) ;
+    joySt.xAxis = joySt.xAxis * outputLPF + ii[0] * (1.0 - outputLPF) ;
+    joySt.yAxis = joySt.yAxis * outputLPF + ii[1] * (1.0 - outputLPF) ;
+    joySt.zAxis = joySt.zAxis * outputLPF + ii[2] * (1.0 - outputLPF) ;
     
     //Do we report the joystick state to the OS here?
-    //Tracker.setState(&joySt);
     if( !outputUI && !startup ){
-      transmitJoystickState();
+      transmitJoystickState(joySt);
     }
 
     // Have we been asked to recalibrate ?
@@ -629,8 +624,7 @@ void loop()
 
 }
 
-void transmitJoystickState(){
-//  Serial.println("transmit!");
+void transmitJoystickState(TrackState_t joySt1){
   // let's wait for the server's invitation so sen our data
   radio.startListening();                                    // Now, continue listening
   unsigned long started_waiting_at = millis();               // Set up a timeout period, get the current microseconds
@@ -651,12 +645,11 @@ void transmitJoystickState(){
     if (fromEdTrackerToReceiver == request) {
       // if the request was for the rudder data
       // read the data from the sensors
-//      Serial.println(request);
       RadioJoystick joystick;
       joystick.fromToByte = fromEdTrackerToReceiver;
-      joystick.axisX = joySt.xAxis;
-      joystick.axisY = joySt.yAxis;
-      joystick.axisRudder = joySt.zAxis;
+      joystick.axisX = joySt1.xAxis;
+      joystick.axisY = joySt1.yAxis;
+      joystick.axisRudder = joySt1.zAxis;
 
       radio.stopListening();                                    // First, stop listening so we can talk.
       delay(2); // this delay is to allow the receiver to prepare for our transmission
