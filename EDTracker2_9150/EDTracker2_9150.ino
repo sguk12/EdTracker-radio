@@ -5,29 +5,31 @@ const char  infoString []   = "EDTrackerMag V4.0.5";
 
 // Changelog:
 //            Release
-// Date       Version   Author  Comment
-// 2014-11-10           RJ      Move to Arduino IDE 158 with newer copmiler = smaller code
-//                              Combine Invensense DMP output with continuous magnetometer drift adjustment
-// 2014-12-24           RJ      Implements startup auto calibration and new magnetometer drift compensation
-// 2015-01-25           RJ      Fix mag wraping/clamping.
-// 2015-02-13           RJ      Fix mag heading average when heading is close to +/- PI boundary
-//                      RJ      Fix incorrect roll compensation for mag heading
-// 2015-03-01 4.0.4     RJ      Fix smoothing val not being saved to EEPROM
-// 2015-06-20 4.0.4     DMH     Fixed incorrect data type for sensor_data breaking compile; cannot upversion
-//                              due to lagging behind pocketmoon repo, but no functional change anyway
-// 2016-01-27 4.0.4     DMH     Non-functional code format change to allow compile on IDE 1.6.7
-//                              Some tidying up while at it
-// 2016-01-30 4.0.5     DH      Removed superfluous debug code, added compiler
-//                              warnings for people choosing wrong hardware
-
-// 2017-07-22           SG      Radio version. It uses NRF24L01 breakout board to transmit the joystick 
-//                              axis values to the receiver arduino Leonardo which present itself as a 
-//                              joystick. The MPU calibration is done the same way the original EDTracker 
-//                              does e.g. via USB serial connection.
+// Date       Version Author  Comment
+// 2014-11-10         RJ      Move to Arduino IDE 158 with newer copmiler = smaller code
+//                            Combine Invensense DMP output with continuous magnetometer drift adjustment
+// 2014-12-24         RJ      Implements startup auto calibration and new magnetometer drift compensation
+// 2015-01-25         RJ      Fix mag wraping/clamping.
+// 2015-02-13         RJ      Fix mag heading average when heading is close to +/- PI boundary
+//                    RJ      Fix incorrect roll compensation for mag heading
+// 2015-03-01         RJ      Fix smoothing val not being saved to EEPROM
+// 2015-06-20         DH      Fixed incorrect data type for sensor_data breaking compile; cannot upversion
+//                            due to lagging behind pocketmoon repo, but no functional change anyway
+// 2015-06-20 4.0.4   DH      Forked from 9150 code and modified for MPU-9250
+// 2016-01-27 4.0.4   DH      Non-functional code format change to allow compile on IDE 1.6.7
+// 2016-01-30 4.0.5   DH      Removed superfluous debug code, fixed mag scaling for 9250, added compiler
+//                            warnings for people choosing wrong hardware
+// 2017-07-22         SG      Radio version. It uses NRF24L01 breakout board to transmit the joystick 
+//                            axis values to the receiver arduino Leonardo which present itself as a 
+//                            joystick. The MPU calibration is done the same way the original EDTracker 
+//                            does e.g. via USB serial connection.
 // SG: for this sketch to work, please do the following:
-// in the hardware/avr/1.6.15/boards.txt, please add -DMPU9150 to the *.build.extra_flags, for example: 
-// leonardo.build.extra_flags={build.usb_flags} -DMPU9150
-
+// 1) in the hardware/avr/1.6.15/boards.txt, please add -DMPU9150 to the *.build.extra_flags, for example: 
+//    leonardo.build.extra_flags={build.usb_flags} -DMPU9150
+// 2) in the packages/SparkFun/hardware/avr/1.1.6/boards.txt, please change the property from
+//    promicro.build.usb_product="SparkFun Pro Micro"
+//    to
+//    promicro.build.usb_product="EDTracker EDTracker2"
 /* ============================================
 EDTracker device code is placed under the MIT License
 
@@ -55,7 +57,6 @@ THE SOFTWARE.
 
 #pragma message ("Sketch is EDTracker2_9150..." )
 
-//#define MPU9150 //SG: this is to fake the board selection
 
 #ifndef MPU9150
 #error "MPU9150 is not defined; have you chosen the wrong board in Arduino IDE?!"
@@ -79,7 +80,7 @@ THE SOFTWARE.
 #include <Wire.h>
 #include <I2Cdev.h>
 #include <RF24.h>
-RF24 radio(9, 10); // explicit CE, CS pins
+RF24 radio(9, 8); // explicit CE, CS pins
 #include "RadioJoy.h"
 
 #include <helper_3dmath.h>
@@ -121,7 +122,7 @@ extern "C" {
 #define EE_YAWEXPSCALE 31                              // 2x 1 byte  in 6:2   0.25 steps should be ok
 #define EE_PITCHEXPSCALE 32                            // 2x 1 byte  in 6:2   0.25 steps should be ok
 #define EE_POLLMPU 33                                  // *UNUSED* char (1 byte), poll or int mode
-#define EE_AUTOCENTRE 34                               // *UNUSED* char (1 byte), auto-centering enabled or disabled TODO : REDUNDANT?
+#define EE_AUTOCENTRE 34                               // *UNUSED* char (1 byte), auto-centering enabled or disabled
 #define EE_CALIBTEMP    35                             // *UNUSED* int (2 byte) - REDUNDANT?
 #define EE_MAGOFFX      40                             // int (2 byte) mag offset for X axis in 9:7 format
 #define EE_MAGOFFY      42                             // int (2 byte) mag offset for Y axis in 9:7 format
@@ -131,11 +132,10 @@ extern "C" {
 /*
  * Pin defines (assume Sparkfun Pro Micro; change as necessary)
  */
-
 #define SDA_PIN 2
 #define SCL_PIN 3
 #define LED_PIN 17 // (Arduino is 13, Teensy is 11, Teensy++ is 6)
-#define BUTTON_PIN 6 // in the original EdTracker it was 10, but 10 is used for CS in my radio designs
+#define BUTTON_PIN 10 // in the original EdTracker it was 10
 
 #ifndef cbi
 #define cbi(sfr, bit) (_SFR_BYTE(sfr) &= ~_BV(bit))
@@ -182,17 +182,16 @@ byte  recalibrateSamples =  255;
 long avgGyro[3] ;//= {0, 0, 0};
 long gBias[3];                    // Gyro biases for MPU
 volatile boolean new_gyro ;
-boolean startup = true;           // Flags when we are in the startup (auto-bias) phase (TODO: remove and just use startupPhase for logic)
+boolean startup = true;           // Flags when we are in the startup (auto-bias) phase 
 int  startupPhase = 0;            // and which type of phase it is
 int  startupSamples;
 
-// The "Tracker" object which is used to mimic the joystick; see HID.cpp within the hardware folder
+// The "Tracker" object which is used to hold the joystick data
 TrackState_t joySt;
 
 /* The mounting matrix below tells the MPL how to rotate the raw
  * data from the driver(s).
  */
-
 static byte gyro_orients[6] =
 {
   B10001000, // right
@@ -200,7 +199,6 @@ static byte gyro_orients[6] =
   B10101100, // left
   B10100001 // rear
 }; //ZYX
-
 
 byte orientation = 2;
 
@@ -229,12 +227,23 @@ long readLongEE(int address) {
           (long)EEPROM.read(address));
 }
 
+int status_mpu_init = 0;
+int status_mpu_set_compass_sample_rate = 0;
+int status_mpu_set_sensors = 0;
+int status_mpu_configure_fifo = 0;
+int status_mpu_set_sample_rate = 0;
+int status_dmp_load_motion_driver_firmware = 0;
+int status_dmp_set_orientation = 0;
+int status_dmp_enable_feature = 0;
+int status_dmp_set_fifo_rate = 0;
+
 /*******************************************************************************************************
 * Initialise function
 ********************************************************************************************************/
 void setup() {
 
   Serial.begin(115200);
+
   radio.begin();
   // Set the PA Level low to prevent power supply related issues since this is a
   // getting_started sketch, and the likelihood of close proximity of the devices. RF24_PA_MAX is default.
@@ -274,25 +283,45 @@ void setup() {
 
 void loop()
 {
-  long unsigned int sensor_data;
+//while(!Serial);
+//Serial.println("OK");
+//Serial.println( status_mpu_init );
+//Serial.println( status_mpu_set_compass_sample_rate );
+//Serial.println( status_mpu_set_sensors );
+//Serial.println( status_mpu_configure_fifo );
+//Serial.println( status_mpu_set_sample_rate );
+//Serial.println( status_dmp_load_motion_driver_firmware );
+//Serial.println( status_dmp_set_orientation );
+//Serial.println( status_dmp_enable_feature );
+//Serial.println( status_dmp_set_fifo_rate );
+
+  //Loop until MPU interrupts us with a reading
+  if (!new_gyro){
+    if(!startup){
+      delay(50);
+    }
+    return;
+  }
+
   short gyro[3], accel[3], sensors;
   unsigned char more ;
   unsigned char magSampled ;
   long quat[4];
 
-  //Loop until MPU interrupts us with a reading
-  while (!new_gyro)
-    ;
-
   nowMillis = millis();
 
-  sensor_data = 1;
-  dmp_read_fifo(gyro, accel, quat, &sensor_data, &sensors, &more);
+  int status_dmp_read_fifo = 1;
+  long unsigned int sensor_data = 1;
+  // if it is not startup, read all the fifo data until fifo is empty
+  // at the startup time we want to get enough samples quick
+  do{
+    status_dmp_read_fifo = dmp_read_fifo(gyro, accel, quat, &sensor_data, &sensors, &more);
+  }while (!startup && (status_dmp_read_fifo==0) && more);
 
   if (!more)
     new_gyro = false;
 
-  if (sensor_data == 0)
+  if (status_dmp_read_fifo == 0)
   {
     Quaternion q( (float)quat[0]  / 1073741824.0f,
                   (float)quat[1]  / 1073741824.0f,
@@ -313,8 +342,8 @@ void loop()
     newv[0] = -atan2(2.0 * (q.x * q.y + q.w * q.z), q.w * q.w + q.x * q.x - q.y * q.y - q.z * q.z);
 
     short mag[3];
-    magSampled  = mpu_get_compass_reg(mag);
-    
+    magSampled  = mpu_get_compass_reg(mag, NULL);
+
     if (magSampled == 0)
     {
 
@@ -402,7 +431,6 @@ void loop()
       }
 #ifdef DEBUG
     } else {
-      // TODO remove
       Serial.print("Mag oops [");
       Serial.print(magSampled);
       Serial.println("]");
@@ -473,19 +501,13 @@ void loop()
       ii[n] = constrain(ii[n], -32767, 32767);
 
     // Do it to it (Robspeak for "set the axis values on the HID object"!)
-    if (ii[0] > 30000  || ii[0] < -30000) {
-      joySt.xAxis = ii[0] ;
-    } else {
-      joySt.xAxis = joySt.xAxis * outputLPF + ii[0] * (1.0 - outputLPF) ;
-    }
-      joySt.yAxis = joySt.yAxis * outputLPF + ii[1] * (1.0 - outputLPF) ;
-      joySt.zAxis = joySt.zAxis * outputLPF + ii[2] * (1.0 - outputLPF) ;
+    joySt.xAxis = joySt.xAxis * outputLPF + ii[0] * (1.0 - outputLPF) ;
+    joySt.yAxis = joySt.yAxis * outputLPF + ii[1] * (1.0 - outputLPF) ;
+    joySt.zAxis = joySt.zAxis * outputLPF + ii[2] * (1.0 - outputLPF) ;
     
-
     //Do we report the joystick state to the OS here?
-    //Tracker.setState(&joySt);
-    if( !outputUI ){
-      transmitJoystickState();
+    if( !outputUI && !startup ){
+      transmitJoystickState(joySt);
     }
 
     // Have we been asked to recalibrate ?
@@ -507,6 +529,7 @@ void loop()
 
       tripple(accel);
       tripple(gyro);
+
 #ifdef DEBUG
       Serial.print((int)rawMagHeading ); //
       printtab();
@@ -515,6 +538,7 @@ void loop()
       Serial.print((int)compass[3] ); //
       printtab();
 #endif
+
       Serial.println("");
 
     }
@@ -538,7 +562,7 @@ void loop()
       if (outputUI )
       {
         long tempNow;
-        mpu_get_temperature (&tempNow);
+        mpu_get_temperature (&tempNow, NULL);
         Serial.print("T\t");
         Serial.println(tempNow);
       }
@@ -601,8 +625,7 @@ void loop()
 
 }
 
-void transmitJoystickState(){
-  Serial.println("transmit!");
+void transmitJoystickState(TrackState_t joySt1){
   // let's wait for the server's invitation so sen our data
   radio.startListening();                                    // Now, continue listening
   unsigned long started_waiting_at = millis();               // Set up a timeout period, get the current microseconds
@@ -616,36 +639,36 @@ void transmitJoystickState(){
   }
       
   if ( timeout ){                                             // Describe the results
-    Serial.println("Failed, no request.");
+//    Serial.println("Failed, no request.");
   }else{
     uint8_t request = 0;
     radio.read( &request, sizeof(uint8_t) );
     if (fromEdTrackerToReceiver == request) {
       // if the request was for the rudder data
       // read the data from the sensors
-      Serial.println(request);
       RadioJoystick joystick;
       joystick.fromToByte = fromEdTrackerToReceiver;
-      joystick.axisX = joySt.xAxis;
-      joystick.axisY = joySt.yAxis;
-      joystick.axisRudder = joySt.zAxis;
+      joystick.axisX = joySt1.xAxis;
+      joystick.axisY = joySt1.yAxis;
+      joystick.axisRudder = joySt1.zAxis;
 
       radio.stopListening();                                    // First, stop listening so we can talk.
       delay(2); // this delay is to allow the receiver to prepare for our transmission
 
       if (!radio.write( &joystick, sizeof(joystick) )){ // This will block until complete
-        Serial.println("Failed to send Joystick state");
+//        Serial.println("Failed to send Joystick state");
       }
 
     }else{
-      Serial.print(request);
-      Serial.println(" Failed, request is not recognised");
+//      Serial.print(request);
+//      Serial.println(" Failed, request is not recognised");
     }
   }
-  Serial.print("transmit completed in ");
-  Serial.print(millis() - started_waiting_at);
-  Serial.println("ms");
+//  Serial.print("transmit completed in ");
+//  Serial.print(millis() - started_waiting_at);
+//  Serial.println("ms");
 }
+
 
 /*******************************************************************************************************
 * Serial Input parsing (UI commands) function
@@ -785,20 +808,19 @@ ISR(INT6_vect) {
 * MPU initialisation
 ********************************************************************************************************/
 void initialize_mpu() {
-  mpu_init(&revision);
-  mpu_set_compass_sample_rate(100); // defaults to 100 in the libs
+  status_mpu_init = mpu_init(NULL);
 
   /* Get/set hardware configuration. Start gyro. Wake up all sensors. */
-  mpu_set_sensors(INV_XYZ_GYRO | INV_XYZ_ACCEL | INV_XYZ_COMPASS);
+  status_mpu_set_sensors = mpu_set_sensors(INV_XYZ_GYRO | INV_XYZ_ACCEL | INV_XYZ_COMPASS);
   //  mpu_set_gyro_fsr (2000);//250
   //  mpu_set_accel_fsr(2);//4
 
   /* Push both gyro and accel data into the FIFO. */
-  mpu_configure_fifo(INV_XYZ_GYRO | INV_XYZ_ACCEL);
-  mpu_set_sample_rate(DEFAULT_MPU_HZ);
+  status_mpu_configure_fifo = mpu_configure_fifo(INV_XYZ_GYRO | INV_XYZ_ACCEL);
+  status_mpu_set_sample_rate = mpu_set_sample_rate(DEFAULT_MPU_HZ);
 
-  dmp_load_motion_driver_firmware();
-  dmp_set_orientation(gyro_orients[orientation]);
+  status_dmp_load_motion_driver_firmware = dmp_load_motion_driver_firmware();
+  status_dmp_set_orientation = dmp_set_orientation(gyro_orients[orientation]);
 
   //dmp_register_tap_cb(&tap_cb);
 
@@ -807,8 +829,9 @@ void initialize_mpu() {
 
   //dmp_features = dmp_features |  DMP_FEATURE_TAP ;
 
-  dmp_enable_feature(dmp_features);
-  dmp_set_fifo_rate(DEFAULT_MPU_HZ);
+  status_dmp_enable_feature = dmp_enable_feature(dmp_features);
+  status_dmp_set_fifo_rate = dmp_set_fifo_rate(DEFAULT_MPU_HZ);
+  status_mpu_set_compass_sample_rate = mpu_set_compass_sample_rate(100); // defaults to 100 in the libs
 
   return ;
 }
@@ -905,8 +928,6 @@ void mess(char * m, long * v)
   Serial.println(v[2]);
 }
 
-
-
 /*******************************************************************************************************
 * Get axis scaling from EEPROM
 ********************************************************************************************************/
@@ -924,7 +945,6 @@ void getScales()
   }
   scaleF[2] = scaleF[1];
 }
-
 
 /*******************************************************************************************************
 * Save axis scaling to EEPROM
@@ -989,6 +1009,7 @@ void scl()
   printtab();
   Serial.println(outputLPF);
 }
+
 /*******************************************************************************************************
 * [Q] Output raw mag data to serial IO
 ********************************************************************************************************/
@@ -1038,7 +1059,6 @@ void printtab()
   Serial.print("\t");
 }
 
-
 /*******************************************************************************************************
 * Read the mag calibration values from EEPROM and set the runtime vars accordingly
 ********************************************************************************************************/
@@ -1054,7 +1074,6 @@ void loadMagCalibration()
     magXform[i] = (float)readIntEE(EE_MAGXFORM + i * 2) / 8192.0;
   }
 }
-
 
 /*******************************************************************************************************
 * Wrapper function to do all settings loading - orientation, scaling mode, scaling values and LPF

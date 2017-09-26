@@ -24,7 +24,7 @@ const char  infoString []   = "EDTrackerMag V4.0.5";
 //                            joystick. The MPU calibration is done the same way the original EDTracker 
 //                            does e.g. via USB serial connection.
 // SG: for this sketch to work, please do the following:
-// 1) in the hardware/avr/1.6.15/boards.txt, please add -DMPU9150 to the *.build.extra_flags, for example: 
+// 1) in the hardware/avr/1.6.15/boards.txt, please add -DMPU9250 to the *.build.extra_flags, for example: 
 //    leonardo.build.extra_flags={build.usb_flags} -DMPU9250
 // 2) in the packages/SparkFun/hardware/avr/1.1.6/boards.txt, please change the property from
 //    promicro.build.usb_product="SparkFun Pro Micro"
