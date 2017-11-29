@@ -17,8 +17,9 @@
 boolean blinkState;
 // Timer related so track operations between loop iterations (LED flashing, etc)
 unsigned long lastMillis = 0;
+unsigned long joyUpdateMillis = 0;
 
-Joystick_ EdTracker(JOYSTICK_DEFAULT_REPORT_ID + 1, 
+Joystick_ EdTracker(JOYSTICK_DEFAULT_REPORT_ID, 
   JOYSTICK_TYPE_JOYSTICK, 0, 0,
   true, true, true, false, false, false,
   false, false, false, false, false);
@@ -33,9 +34,7 @@ void setup()
   EdTracker.setZAxisRange(-32767, 32767);
   EdTracker.begin(false);
 
-//  Serial.begin(9600);   // Debugging only
-//  while (!Serial);             // Leonardo: wait for serial monitor
-//  Serial.println("setup");
+//  Serial.begin(115200);   // Debugging only
 
   radio.begin();
   // Set the PA Level low to prevent power supply related issues since this is a
@@ -52,17 +51,23 @@ void setup()
 
 void loop()
 {
+//  while (!Serial);             // Leonardo: wait for serial monitor
 //  Serial.println(F("loop"));
 
   // Send an invitation to the edtracker slave
   radio.stopListening();                                    // First, stop listening so we can talk.
   if (!radio.write( &fromEdTrackerToReceiver, sizeof(int8_t) )){ // This will block until complete
-//    Serial.println(F("failed throttle"));
+//    Serial.println(F("failed to send invitation"));
   }else{
     readSlaveResponseAndUpdateJoystick();
   }
   
-  EdTracker.sendState();
+  unsigned long nowMillis = millis();
+  if (nowMillis > joyUpdateMillis )
+  {
+    EdTracker.sendState();
+    joyUpdateMillis = nowMillis + 20;// 20ms = 50 HZ
+  }
   blink();
   delay(5);
 }
