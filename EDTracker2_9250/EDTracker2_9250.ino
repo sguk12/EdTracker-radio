@@ -19,12 +19,12 @@ const char  infoString []   = "EDTrackerMag V4.0.5";
 // 2016-01-27 4.0.4   DH      Non-functional code format change to allow compile on IDE 1.6.7
 // 2016-01-30 4.0.5   DH      Removed superfluous debug code, fixed mag scaling for 9250, added compiler
 //                            warnings for people choosing wrong hardware
-// 2017-07-22         SG      Radio version. It uses NRF24L01 breakout board to transmit the joystick 
-//                            axis values to the receiver arduino Leonardo which present itself as a 
-//                            joystick. The MPU calibration is done the same way the original EDTracker 
+// 2017-07-22         SG      Radio version. It uses NRF24L01 breakout board to transmit the joystick
+//                            axis values to the receiver arduino Leonardo which present itself as a
+//                            joystick. The MPU calibration is done the same way the original EDTracker
 //                            does e.g. via USB serial connection.
 // SG: for this sketch to work, please do the following:
-// 1) in the hardware/avr/1.6.15/boards.txt, please add -DMPU9250 to the *.build.extra_flags, for example: 
+// 1) in the hardware/avr/1.6.15/boards.txt, please add -DMPU9250 to the *.build.extra_flags, for example:
 //    leonardo.build.extra_flags={build.usb_flags} -DMPU9250
 // 2) in the packages/SparkFun/hardware/avr/1.1.6/boards.txt, please change the property from
 //    promicro.build.usb_product="SparkFun Pro Micro"
@@ -181,7 +181,7 @@ byte  recalibrateSamples =  255;
 long avgGyro[3] ;//= {0, 0, 0};
 long gBias[3];                    // Gyro biases for MPU
 volatile boolean new_gyro ;
-boolean startup = true;           // Flags when we are in the startup (auto-bias) phase 
+boolean startup = true;           // Flags when we are in the startup (auto-bias) phase
 int  startupPhase = 0;            // and which type of phase it is
 int  startupSamples;
 
@@ -226,15 +226,7 @@ long readLongEE(int address) {
           (long)EEPROM.read(address));
 }
 
-int status_mpu_init = 0;
 int status_mpu_set_compass_sample_rate = 0;
-int status_mpu_set_sensors = 0;
-int status_mpu_configure_fifo = 0;
-int status_mpu_set_sample_rate = 0;
-int status_dmp_load_motion_driver_firmware = 0;
-int status_dmp_set_orientation = 0;
-int status_dmp_enable_feature = 0;
-int status_dmp_set_fifo_rate = 0;
 
 /*******************************************************************************************************
 * Initialise function
@@ -270,6 +262,7 @@ void setup() {
   cbi(PORTD, 0);
   cbi(PORTD, 1);
 
+  delay(500);
   // Initialize the MPU:
   initialize_mpu();
   enable_mpu();
@@ -284,21 +277,10 @@ void loop()
 {
 //while(!Serial);
 //Serial.println("OK");
-//Serial.println( status_mpu_init );
 //Serial.println( status_mpu_set_compass_sample_rate );
-//Serial.println( status_mpu_set_sensors );
-//Serial.println( status_mpu_configure_fifo );
-//Serial.println( status_mpu_set_sample_rate );
-//Serial.println( status_dmp_load_motion_driver_firmware );
-//Serial.println( status_dmp_set_orientation );
-//Serial.println( status_dmp_enable_feature );
-//Serial.println( status_dmp_set_fifo_rate );
 
   //Loop until MPU interrupts us with a reading
   if (!new_gyro){
-    if(!startup){
-      delay(50);
-    }
     return;
   }
 
@@ -309,18 +291,17 @@ void loop()
 
   nowMillis = millis();
 
-  int status_dmp_read_fifo = 1;
   long unsigned int sensor_data = 1;
   // if it is not startup, read all the fifo data until fifo is empty
   // at the startup time we want to get enough samples quick
   do{
-    status_dmp_read_fifo = dmp_read_fifo(gyro, accel, quat, &sensor_data, &sensors, &more);
-  }while (!startup && (status_dmp_read_fifo==0) && more);
+    dmp_read_fifo(gyro, accel, quat, &sensor_data, &sensors, &more);
+  }while (!startup && more);
 
   if (!more)
     new_gyro = false;
 
-  if (status_dmp_read_fifo == 0)
+  if (sensor_data == 0)
   {
     Quaternion q( (float)quat[0]  / 1073741824.0f,
                   (float)quat[1]  / 1073741824.0f,
@@ -332,16 +313,16 @@ void loop()
 
     float newv[3];
     //roll
-    newv[2] =  atan2(2.0 * (q.y * q.z + q.w * q.x), q.w * q.w - q.x * q.x - q.y * q.y + q.z * q.z);
+    newv[ROLL] =  atan2(2.0 * (q.y * q.z + q.w * q.x), q.w * q.w - q.x * q.x - q.y * q.y + q.z * q.z);
 
     // pitch
-    newv[1] = -asin(-2.0 * (q.x * q.z - q.w * q.y));
+    newv[PITCH] = -asin(-2.0 * (q.x * q.z - q.w * q.y));
 
     //yaw
-    newv[0] = -atan2(2.0 * (q.x * q.y + q.w * q.z), q.w * q.w + q.x * q.x - q.y * q.y - q.z * q.z);
+    newv[YAW] = -atan2(2.0 * (q.x * q.y + q.w * q.z), q.w * q.w + q.x * q.x - q.y * q.y - q.z * q.z);
 
     short mag[3];
-    magSampled  = mpu_get_compass_reg(mag, NULL);
+    magSampled  = mpu_get_compass_reg(mag);
 
     if (magSampled == 0)
     {
@@ -403,7 +384,7 @@ void loop()
             mpu_set_gyro_bias_reg(gBias);
             startupPhase = 2;
             startupSamples = 0;
-            lastDriftX = newv[0];
+            lastDriftX = newv[YAW];
             //return;
           }
           else
@@ -419,7 +400,7 @@ void loop()
         {
           if (startupSamples == 1500)
           {
-            xDriftComp = (newv[0] - lastDriftX) * 69.53373;
+            xDriftComp = (newv[YAW] - lastDriftX) * 69.53373;
             startup = false;
             recenter();
             Serial.println("H"); // Hello
@@ -474,11 +455,11 @@ void loop()
       newv[n] = newv[n] - compass[n];
 
     // this should take us back to zero BUT we may have wrapped so ..
-    if (newv[0] < -32768.0)
-      newv[0] += 65536.0;
+    if (newv[YAW] < -32768.0)
+      newv[YAW] += 65536.0;
 
-    if (newv[0] > 32768.0)
-      newv[0] -= 65536.0 ;
+    if (newv[YAW] > 32768.0)
+      newv[YAW] -= 65536.0 ;
 
     long ii[3];
 
@@ -503,7 +484,7 @@ void loop()
     joySt.xAxis = joySt.xAxis * outputLPF + ii[0] * (1.0 - outputLPF) ;
     joySt.yAxis = joySt.yAxis * outputLPF + ii[1] * (1.0 - outputLPF) ;
     joySt.zAxis = joySt.zAxis * outputLPF + ii[2] * (1.0 - outputLPF) ;
-    
+
     //Do we report the joystick state to the OS here?
     if( !outputUI && !startup ){
       transmitJoystickState(joySt);
@@ -547,32 +528,32 @@ void loop()
       blink();
 
       // apply drift compensation
-      compass[0] = compass[0] + xDriftComp;
+      compass[YAW] = compass[YAW] + xDriftComp;
 
       //handle wrap
-      if (compass[0] > 65536.0)
-        compass[0] = compass[0] - 65536.0;
-      else if (compass[0] < -65536.0 )
-        compass[0] = compass[0] + 65536.0;
+      if (compass[YAW] > 65536.0)
+        compass[YAW] = compass[YAW] - 65536.0;
+      else if (compass[YAW] < -65536.0 )
+        compass[YAW] = compass[YAW] + 65536.0;
 
       lastUpdate = nowMillis + 100;
-      lastDriftX = newv[0];
+      lastDriftX = newv[YAW];
 
       if (outputUI )
       {
         long tempNow;
-        mpu_get_temperature (&tempNow, NULL);
+        mpu_get_temperature (&tempNow);
         Serial.print("T\t");
         Serial.println(tempNow);
       }
-      
+
     }
 
     // magHeading = constrain (magHeading, -32767, 32767);
 
     if (//magHeading != lastMagHeading  &&
       // abs(magHeading) < 10000  &&
-      newv[1] < 6000.0  && newv[1] > -6000.0
+      newv[PITCH] < 6000.0  && newv[PITCH] > -6000.0
     )
     {
       lastMagHeading = magHeading;
@@ -580,7 +561,7 @@ void loop()
       // Mag is so noisy on 9150 we just ask 'is Mag ahead or behind DMP'
       // and keep a count of consecutive behinds or aheads and use this
       // to adjust our DMP heading and also tweak the DMP drift
-      float delta = magHeading - newv[0];
+      float delta = magHeading - newv[YAW];
 
       if (delta > 32768.0)
         delta = 65536.0 - delta;
@@ -613,7 +594,7 @@ void loop()
       }
 
       // Tweek the yaw offset. 0.01 keeps the head central with no visible twitching
-      compass[0] = compass[0] + (float)(consecCount * abs(consecCount)) * 0.012;
+      compass[YAW] = compass[YAW] + (float)(consecCount * abs(consecCount)) * 0.012;
 
       //Also tweak the overall drift compensation.
       //DMP still suffers from 'warm-up' issues and this helps greatly.
@@ -629,14 +610,14 @@ void transmitJoystickState(TrackState_t joySt1){
   radio.startListening();                                    // Now, continue listening
   unsigned long started_waiting_at = millis();               // Set up a timeout period, get the current microseconds
   boolean timeout = false;                                   // Set up a variable to indicate if a response was received or not
-  
+
   while ( ! radio.available() ){                             // While nothing is received
     if (millis() - started_waiting_at > 500 ){            // If waited longer than 500ms, indicate timeout and exit while loop
         timeout = true;
         break;
     }
   }
-      
+
   if ( timeout ){                                             // Describe the results
 //    Serial.println("Failed, no request.");
   }else{
@@ -807,19 +788,19 @@ ISR(INT6_vect) {
 * MPU initialisation
 ********************************************************************************************************/
 void initialize_mpu() {
-  status_mpu_init = mpu_init(NULL);
+  mpu_init(NULL);
 
   /* Get/set hardware configuration. Start gyro. Wake up all sensors. */
-  status_mpu_set_sensors = mpu_set_sensors(INV_XYZ_GYRO | INV_XYZ_ACCEL | INV_XYZ_COMPASS);
+  mpu_set_sensors(INV_XYZ_GYRO | INV_XYZ_ACCEL | INV_XYZ_COMPASS);
   //  mpu_set_gyro_fsr (2000);//250
   //  mpu_set_accel_fsr(2);//4
 
   /* Push both gyro and accel data into the FIFO. */
-  status_mpu_configure_fifo = mpu_configure_fifo(INV_XYZ_GYRO | INV_XYZ_ACCEL);
-  status_mpu_set_sample_rate = mpu_set_sample_rate(DEFAULT_MPU_HZ);
+  mpu_configure_fifo(INV_XYZ_GYRO | INV_XYZ_ACCEL);
+  mpu_set_sample_rate(DEFAULT_MPU_HZ);
 
-  status_dmp_load_motion_driver_firmware = dmp_load_motion_driver_firmware();
-  status_dmp_set_orientation = dmp_set_orientation(gyro_orients[orientation]);
+  dmp_load_motion_driver_firmware();
+  dmp_set_orientation(gyro_orients[orientation]);
 
   //dmp_register_tap_cb(&tap_cb);
 
@@ -828,8 +809,8 @@ void initialize_mpu() {
 
   //dmp_features = dmp_features |  DMP_FEATURE_TAP ;
 
-  status_dmp_enable_feature = dmp_enable_feature(dmp_features);
-  status_dmp_set_fifo_rate = dmp_set_fifo_rate(DEFAULT_MPU_HZ);
+  dmp_enable_feature(dmp_features);
+  dmp_set_fifo_rate(DEFAULT_MPU_HZ);
   status_mpu_set_compass_sample_rate = mpu_set_compass_sample_rate(100); // defaults to 100 in the libs
 
   return ;
@@ -1085,4 +1066,3 @@ void loadSettings()
   getScales();
   outputLPF = (float)readIntEE(EE_LPF) / 32767.0;
 }
-
